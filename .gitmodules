@@ -1,0 +1,3 @@
+[submodule "proxy-lite"]
+	path = proxy-lite
+	url = https://github.com/convergence-ai/proxy-lite.git
