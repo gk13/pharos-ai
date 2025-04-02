@@ -5,7 +5,7 @@ provider "google" {
 
 resource "google_compute_instance" "pharos_ai_instance" {
   name         = "pharos-ai-instance"
-  machine_type = "e2-medium"
+  machine_type = "e2-small"
   zone         = "europe-west2-b"
 
   boot_disk {
