@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from transformers import BioGptTokenizer, BioGptForCausalLM
 import torch
+import asyncio
+from proxy_lite import Runner, RunnerConfig
 
 app = Flask(__name__)
 
@@ -22,20 +24,6 @@ if model is not None:
     model.to(device)
     model.eval()
 
-
-FALLBACK_DATABASE = { #In case model responds with unsatisfactory response
-    "glaucoma": "Use eye drops such as latanoprost to reduce intraocular pressure.",
-    "anxiety": "Consider SSRIs like sertraline or cognitive behavioral therapy.",
-    "lung cancer": "Treatment may include surgery, chemotherapy, or targeted therapy depending on the stage.",
-    "diabetes": "Manage with insulin therapy, metformin, or lifestyle changes like diet and exercise.",
-    "hypertension": "Use ACE inhibitors like lisinopril and maintain a low-sodium diet.",
-    "depression": "Consider antidepressants like fluoxetine or psychotherapy.",
-    "asthma": "Use an inhaler with albuterol for acute symptoms and inhaled corticosteroids for long-term control.",
-    "migraine": "Use triptans like sumatriptan for acute attacks and beta-blockers for prevention.",
-    "arthritis": "Manage with NSAIDs like ibuprofen or physical therapy.",
-    "pneumonia": "Treat with antibiotics like amoxicillin and ensure adequate rest and hydration."
-}    
-
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
@@ -44,22 +32,71 @@ def predict():
         return jsonify({'error': 'Please provide a disease in the request body'}), 400
     
     disease = data['disease'].lower()
-    if model is None or tokenizer is None:
-        print("Model or tokenizer not loaded, falling back to database")
-        if disease in FALLBACK_DATABASE:
-            return jsonify({'disease': disease, 'treatment': TREATMENT_DATABASE[disease]})
-        return jsonify({'error': 'Model not loaded and disease not found in database'}), 500
 
     treatment = generate_treatment(disease)
 
-    if is_sensible_treatment(treatment):
-        return jsonify({'disease': disease, 'treatment': treatment})
-    else:
-        print(f"Generated treatment '{treatment}' is not sensible, falling back to database")
-        if disease in FALLBACK_DATABASE:
-            return jsonify({'disease': disease, 'treatment': TREATMENT_DATABASE[disease]})
-        return jsonify({'disease': disease, 'treatment': treatment, 'warning': 'Generated treatment may not be accurate'})
+    print(f"\033[34mGenerated treatment '{treatment}' can be improved, now using Proxy AI\033[0m")  #Call to Proxy AI after BioGPT returns response  
+    
+    # Configure Proxy AI
+    config = RunnerConfig.from_dict({
+        "environment": {
+            "name": "webbrowser",
+            "homepage": "https://www.healthline.com",
+            "headless": True,  
+        },
+        "solver": {
+            "name": "simple",
+            "agent": {
+                "name": "proxy_lite",
+                "client": {
+                    "name": "convergence",
+                    "model_id": "convergence-ai/proxy-lite-3b",
+                    "api_base": "https://convergence-ai-demo-api.hf.space/v1",  
+                },
+            },
+        },
+        "max_steps": 10, 
+        "action_timeout": 300,
+        "environment_timeout": 600,
+        "task_timeout": 1800,
+        "logger_level": "INFO",
+    })
 
+    proxy_runner = Runner(config=config)
+    task = (
+    f"First, wait for the page to fully load. If there is a cookie consent popup or a privacy terms screen, "
+    f"look for a button with text like 'Accept and Continue to Site', 'Accept', or 'Agree' and click it to dismiss the popup. "
+    f"If the button is in a modal dialog or iframe, ensure you interact with the correct frame. "
+    f"Then, search for 'treatments for {disease}' on Healthline and extract the recommended treatment in a concise sentence."
+)
+    
+    try:
+        run_result = asyncio.run(proxy_runner.run(task))
+        if hasattr(run_result, 'output'):
+                treatment = run_result.output
+        elif hasattr(run_result, 'result'):
+                treatment = run_result.result
+        else:
+            # If we can't find the output directly, try to extract it from the logs
+            # This is a fallback and might need adjustment based on proxy_lite's behavior
+            treatment = str(run_result)  # Convert the Run object to a string to search for the treatment
+            # Look for the task completion message
+            if "Task complete" in treatment:
+                # Extract the text after "Task complete. ✨"
+                start_idx = treatment.find("Task complete. ✨") + len("Task complete. ✨")
+                treatment = treatment[start_idx:].strip()
+                # Remove any trailing log messages (e.g., timestamps)
+                treatment = treatment.split('\n')[0].strip()
+            else:
+                treatment = "No treatment found by Proxy AI" 
+        # Ensure the treatment is a string and clean it up
+        if not isinstance(treatment, str):
+            treatment = str(treatment)                    
+
+        return jsonify({'disease': disease, 'treatment': treatment, 'source': 'Proxy AI'})
+    except Exception as e:
+        return jsonify({'error': f"Proxy AI failed: {str(e)}"}), 500
+ 
 def generate_treatment(disease):
     input_text = (
         "As a medical professional, recommend a specific treatment (e.g., medication, therapy, or lifestyle change) "
@@ -89,23 +126,6 @@ def generate_treatment(disease):
     if treatment.startswith(input_text):
         treatment = treatment[len(input_text):].strip()
     return treatment
-
-def is_sensible_treatment(treatment):
-    treatment = treatment.strip('"')
-
-    if any(phrase in treatment.lower() for phrase in [
-        "is a disease", "is a condition", "i am", "refers to", "is characterized by",
-        "systematic review", "meta-analysis", "recent advances", "update from", "et al"
-    ]):
-        return False
-    
-    if any(phrase in treatment.lower() for phrase in [
-        "use ", "treat with", "manage with", "consider ", "recommend ", "prescribe ",
-        "therapy", "medication", "lifestyle", "surgery", "diet", "exercise"
-    ]):
-        return True
-    
-    return False
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

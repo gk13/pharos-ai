@@ -1,5 +1,5 @@
 # pharos-ai
-ML system running **BioGPT model from Hugging Face** on **Google Cloud TPU v2 with 8 cores** for smart treatment prediction. Containerized with **Docker**, it runs as a Flask based API deployed on GCP VM using **Terraform** for infrastructure management. 
+ML system running **BioGPT model from Hugging Face** on **Google Cloud TPU v2 with 8 cores** for smart treatment prediction and validating that response with Convergence-AI's **Proxy-lite** AI Agent. Containerized with **Docker**, it runs as a Flask based API deployed on GCP VM using **Terraform** for infrastructure management. 
 
 ## Project Overview
 
@@ -20,11 +20,17 @@ The Pharos AI API takes a disease as input (e.g., "glaucoma", "anxiety") and ret
 - **Docker**: Install Docker to build and push the container image.
 - **gcloud SDK**: Install the Google Cloud SDK to interact with GCP resources.
 - **Minikube** (Optional): Install Minikube and kubectl if you want to test the Kubernetes deployment locally.
+- **Python 3.11 or higher**
+- **`uv` (a Python package manager, optional but recommended)**
+- **`gcloud` CLI installed and authenticated**
 
-### Step 1: Clone the Repository
+### Step 1: Clone the Repository, its submodules (Proxy Lite) and set up a virtual environment
 ```bash
-git clone <your-repo-url>
-cd <your-repo-name>
+git clone --recurse-submodules https://github.com/your-username/pharos-ai.git
+cd pharos-ai
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
 ### Step 2: Set Up GCP Credentials
@@ -73,7 +79,7 @@ docker ps
 ```
 **Test the API locally on the VM:**
 ```bash
-curl -X POST -H "Content-Type: application/json" -d '{"disease":"glaucoma"}' http://localhost:5000/predict
+curl -X POST -H "Content-Type: application/json" -d '{"disease":"flu"}' http://localhost:5000/predict
 ```
 
 ## Step 6: Test the API Externally
@@ -83,7 +89,7 @@ gcloud compute instances list
 ```
 **Test the API from your local machine:**
 ```bash
-curl -X POST -H "Content-Type: application/json" -d '{"disease":"glaucoma"}' http://<external-ip>:5000/predict
+curl -X POST -H "Content-Type: application/json" -d '{"disease":"flu"}' http://<external-ip>:5000/predict
 ```
 
 ### Optional: Local Deployment with Minikube
@@ -146,20 +152,21 @@ kubectl apply -f service.yaml
 
 ## API Usage
 ### Endpoint
-- **URL**: http://<external-ip>:5000/predict
+- **URL**: http://\<external-ip/localhost>:5000/predict
 - **Method**: POST
 - **Content-Type**: application/json
 
 ### Request Body
 ```json
 {
-  "disease": "glaucoma"
+  "disease": "flu"
 }
 ```
 ### Example Response
 ```json
 {
-  "disease": "glaucoma",
-  "treatment": "Use eye drops such as latanoprost to reduce intraocular pressure."
+  "disease": "flu",
+  "source": "Proxy AI",
+  "treatment": "The recommended treatments for the flu on Healthline involve relieving major symptoms until the body clears the infection. Antibiotics are not typically effective because the flu is caused by a virus. Your doctor may prescribe antibiotics for secondary bacterial infections. The primary treatments include plenty of rest and fluids, with self-care options such as taking a cool bath, using over-the-counter pain relievers, eating regular meals, gargling with warm salt water, avoiding alcohol, and stopping smoking if applicable."
 }
 ```
