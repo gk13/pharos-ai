@@ -5,13 +5,13 @@ provider "google" {
 
 resource "google_compute_instance" "pharos_ai_instance" {
   name         = "pharos-ai-instance"
-  machine_type = "e2-small"
+  machine_type = "e2-medium"  # Upgraded from e2-small for better performance
   zone         = "europe-west2-b"
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-11"
-      size=20
+      image = "debian-cloud/debian-12" 
+      size  = 20
     }
   }
 
