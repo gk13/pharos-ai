@@ -5,6 +5,7 @@ import asyncio
 from proxy_lite import Runner, RunnerConfig
 
 app = Flask(__name__)
+app.config['JSON_SORT_KEYS'] = False
 
 model_name = "microsoft/biogpt"
 
@@ -33,9 +34,9 @@ def predict():
     
     disease = data['disease'].lower()
 
-    treatment = generate_treatment(disease)
+    biogpt_treatment = generate_treatment(disease)
 
-    print(f"\033[34mGenerated treatment '{treatment}' can be improved, now using Proxy AI\033[0m")  #Call to Proxy AI after BioGPT returns response  
+    print(f"\033[34mGenerated treatment '{biogpt_treatment}' can be improved, now using Proxy AI\033[0m", flush=True)  #Call to Proxy AI after BioGPT returns response  
     
     # Configure Proxy AI
     config = RunnerConfig.from_dict({
@@ -73,27 +74,31 @@ def predict():
     try:
         run_result = asyncio.run(proxy_runner.run(task))
         if hasattr(run_result, 'output'):
-                treatment = run_result.output
+                proxy_treatment = run_result.output
         elif hasattr(run_result, 'result'):
-                treatment = run_result.result
+                proxy_treatment = run_result.result
         else:
             # If we can't find the output directly, try to extract it from the logs
             # This is a fallback and might need adjustment based on proxy_lite's behavior
-            treatment = str(run_result)  # Convert the Run object to a string to search for the treatment
+            proxy_treatment = str(run_result)  # Convert the Run object to a string to search for the treatment
             # Look for the task completion message
-            if "Task complete" in treatment:
+            if "Task complete" in proxy_treatment:
                 # Extract the text after "Task complete. ✨"
-                start_idx = treatment.find("Task complete. ✨") + len("Task complete. ✨")
-                treatment = treatment[start_idx:].strip()
+                start_idx = proxy_treatment.find("Task complete. ✨") + len("Task complete. ✨")
+                proxy_treatment = proxy_treatment[start_idx:].strip()
                 # Remove any trailing log messages (e.g., timestamps)
-                treatment = treatment.split('\n')[0].strip()
+                proxy_treatment = proxy_treatment.split('\n')[0].strip()
             else:
-                treatment = "No treatment found by Proxy AI" 
+                proxy_treatment = "No treatment found by Proxy AI" 
         # Ensure the treatment is a string and clean it up
-        if not isinstance(treatment, str):
-            treatment = str(treatment)                    
+        if not isinstance(proxy_treatment, str):
+            proxy_treatment = str(proxy_treatment)                    
 
-        return jsonify({'disease': disease, 'treatment': treatment, 'source': 'Proxy AI'})
+        return jsonify({
+            'disease': disease,
+            'biogpt_treatment': biogpt_treatment,
+            'proxy_treatment': proxy_treatment
+        })
     except Exception as e:
         return jsonify({'error': f"Proxy AI failed: {str(e)}"}), 500
  
@@ -117,7 +122,6 @@ def generate_treatment(disease):
             top_k=50,        # Use top-k sampling to balance diversity and quality
             top_p=0.9,       # Use nucleus sampling for better coherence 
             no_repeat_ngram_size=2,
-            early_stopping=True,  
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id
         )
